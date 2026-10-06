@@ -1,0 +1,21 @@
+{
+  "version": "0.1.0",
+  "sourceRepository": "https://github.com/lingmu0/better-ae2",
+  "curseForgeProjectId": 1730162,
+  "files": [
+    {
+      "minecraft": "1.20.1",
+      "loader": "Forge",
+      "fileName": "better_ae2-0.1.0-1.20.1.jar",
+      "curseForgeFileId": 9080919,
+      "sha256": "208a93afb9ef6b70ff4464cc0b4e5bd6b29fbd211e25b531f62c765ead47289d"
+    },
+    {
+      "minecraft": "1.21.1",
+      "loader": "NeoForge",
+      "fileName": "better_ae2-0.1.0-1.21.1.jar",
+      "curseForgeFileId": 9080920,
+      "sha256": "356688e49d8918fab0c6205cea409461cf2c5a6bf346a7b8b0dfa6265632a4d9"
+    }
+  ]
+}
