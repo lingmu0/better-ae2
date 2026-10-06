@@ -1,0 +1,23 @@
+{
+  "better_ae2.search": "搜索网络物品",
+  "better_ae2.network": "AE2 网络",
+  "better_ae2.deposit_container": "存入容器",
+  "better_ae2.deposit_player": "存入背包",
+  "better_ae2.shift_player": "玩家 shift 目标",
+  "better_ae2.shift_container": "容器 shift 目标",
+  "better_ae2.button.shift_player": "玩家%s",
+  "better_ae2.button.shift_container": "容器%s",
+  "better_ae2.button.deposit_container": "存容器",
+  "better_ae2.button.deposit_player": "存背包",
+  "better_ae2.tooltip.shift_player": "玩家物品栏 Shift 转移到维度网络",
+  "better_ae2.tooltip.shift_container": "打开的容器 Shift 转移到维度网络",
+  "better_ae2.tooltip.deposit_container": "将打开的容器物品一键存入维度网络",
+  "better_ae2.tooltip.deposit_player": "将玩家物品栏（不含快捷栏）一键存入维度网络",
+  "better_ae2.tooltip.shortcut": "快捷键：%s",
+  "better_ae2.tooltip.hide_sidebar": "点击隐藏；按住并拖动可移动侧边栏",
+  "better_ae2.tooltip.show_sidebar": "点击显示；按住并拖动可移动侧边栏",
+  "better_ae2.jei.missing_ingredients": "缺少配方所需的物品",
+  "key.better_ae2.deposit_container": "存入容器",
+  "key.better_ae2.deposit_player": "存入背包",
+  "key.categories.better_ae2": "更好的超越维度"
+}

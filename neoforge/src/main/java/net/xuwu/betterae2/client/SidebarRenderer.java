@@ -1,0 +1,524 @@
+package net.xuwu.betterae2.client;
+
+import net.xuwu.betterae2.compat.ButtonState;
+import net.xuwu.betterae2.compat.CommonTextures;
+import net.xuwu.betterae2.compat.CommonConfigRuntime;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.xuwu.betterae2.common.NetworkStorageSlot;
+import net.xuwu.betterae2.common.StorageSnapshot;
+
+import java.util.List;
+
+/** Renders a compact AE2-style storage view beside vanilla container screens. */
+public final class SidebarRenderer
+{
+    public static final int SLOT_COLUMNS = 5;
+    public static final int WIDTH = SLOT_COLUMNS * 18 + 14;
+    public static final int SEARCH_LEFT = 4;
+    public static final int TOGGLE_WIDTH = 12;
+    public static final int CONTROL_GAP = 3;
+
+    private static final ResourceLocation INVENTORY_TEXTURE =
+            ResourceLocation.fromNamespaceAndPath("minecraft", "textures/gui/container/inventory.png");
+
+    private static final int GRID_TOP = CommonTextures.TOP_BASE_COMMON_HEIGHT
+            + CommonTextures.COMMON_CONNECTION_HEIGHT
+            + 25;
+    public static final int MAX_VISIBLE_ROWS = 8;
+
+    private static final ClientStorageView STORAGE_VIEW = new ClientStorageView();
+
+    private static String lastSearch = "";
+    private static ButtonState lastPrimarySort;
+    private static ButtonState lastSecondarySort;
+    private static ButtonState lastReverse;
+
+    private SidebarRenderer()
+    {
+    }
+
+    public static int getPanelHeight()
+    {
+        return GRID_TOP + visibleRows() * CommonTextures.COMMON_SLOTS_HEIGHT
+                + CommonTextures.BOTTOM_BASE_COMMON_HEIGHT;
+    }
+
+    public static int getGridTop()
+    {
+        return GRID_TOP;
+    }
+
+    public static int getVisibleRows()
+    {
+        return visibleRows();
+    }
+
+    public static int getSearchWidth()
+    {
+        return WIDTH - SEARCH_LEFT - TOGGLE_WIDTH - CONTROL_GAP * 2;
+    }
+
+    public static int getToggleX(int sidebarX)
+    {
+        return sidebarX + WIDTH - TOGGLE_WIDTH - CONTROL_GAP;
+    }
+
+    /** Updates the real menu Slots before vanilla starts rendering its container slots. */
+    public static void prepareSlots(SidebarScreenAccess host)
+    {
+        if (!host.bbd$isSidebarEnabled() || !ClientStorageState.available() || host.bbd$isSidebarHidden())
+        {
+            host.bbd$updateSidebarSlots(List.of());
+            return;
+        }
+
+        List<ClientStorageView.Entry> entries = entries(host);
+        syncScrollState(host.bbd$getSearchBox().getValue(), entries.size());
+        host.bbd$updateSidebarSlots(entries);
+    }
+
+    public static void render(SidebarScreenAccess host, GuiGraphics graphics, int mouseX, int mouseY, float partialTick)
+    {
+        StorageSnapshot snapshot = ClientStorageState.snapshot();
+        if (!host.bbd$isSidebarEnabled() || !snapshot.available())
+        {
+            host.bbd$updateSidebarSlots(List.of());
+            setWidgetsVisible(host, false);
+            host.bbd$getSidebarToggleButton().visible = false;
+            host.bbd$getSidebarToggleButton().active = false;
+            return;
+        }
+
+        syncWidgets(host);
+        if (host.bbd$isSidebarHidden())
+        {
+            host.bbd$updateSidebarSlots(List.of());
+            renderWidgets(host, graphics, mouseX, mouseY, partialTick);
+            return;
+        }
+
+        List<ClientStorageView.Entry> entries = entries(host);
+        int rows = visibleRows();
+        syncScrollState(host.bbd$getSearchBox().getValue(), entries.size());
+        host.bbd$updateSidebarSlots(entries);
+
+        int x = host.bbd$getSidebarX();
+        int y = host.bbd$getSidebarY();
+        Font font = Minecraft.getInstance().font;
+
+        drawBackground(graphics, x, y, rows);
+        String networkName = snapshot.networkName().isEmpty() ? "超越维度" : snapshot.networkName();
+        graphics.drawString(font, trim(font, networkName, 50), x + 5, y + 7, 0xFF404040, false);
+
+        int firstEntry = ClientStorageState.scrollRow() * SLOT_COLUMNS;
+        for (int row = 0; row < rows; row++)
+        {
+            for (int col = 0; col < SLOT_COLUMNS; col++)
+            {
+                int entryIndex = firstEntry + row * SLOT_COLUMNS + col;
+                int slotX = x + 8 + col * 18;
+                int slotY = y + GRID_TOP + row * 18 + 1;
+                if (isHovered(x, y, mouseX, mouseY, row, col))
+                {
+                    graphics.fill(slotX, slotY, slotX + 16, slotY + 16, 0x80FFFFFF);
+                }
+                NetworkStorageSlot slot = host.bbd$getSidebarSlots().get(row * SLOT_COLUMNS + col);
+                if (entryIndex < 0 || entryIndex >= entries.size() || !slot.hasItem())
+                {
+                    continue;
+                }
+
+                renderStack(graphics, slot.getKey(), slotX, slotY);
+                renderAmount(graphics, slot.getKey(), slot.getStoredAmount(), slotX, slotY);
+            }
+        }
+
+        renderWidgets(host, graphics, mouseX, mouseY, partialTick);
+    }
+
+    public static boolean handleMouseClick(SidebarScreenAccess host, double mouseX, double mouseY, int button)
+    {
+        if (!host.bbd$isSidebarEnabled())
+        {
+            return false;
+        }
+        EditBox search = host.bbd$getSearchBox();
+        if (search == null)
+        {
+            return false;
+        }
+
+        Button toggle = host.bbd$getSidebarToggleButton();
+        if (button == 0 && toggle.visible && toggle.active && toggle.isMouseOver(mouseX, mouseY))
+        {
+            if (search.isFocused())
+            {
+                ((Screen) (Object) host).setFocused(null);
+                search.setFocused(false);
+            }
+            host.bbd$beginSidebarDrag(mouseX, mouseY);
+            return true;
+        }
+
+        if (search.visible && search.active && search.isMouseOver(mouseX, mouseY))
+        {
+            if (button == 0 || button == 1)
+            {
+                Screen screen = (Screen) (Object) host;
+                screen.setFocused(search);
+                search.setFocused(true);
+                if (button == 0)
+                {
+                    search.mouseClicked(mouseX, mouseY, button);
+                }
+                else
+                {
+                    search.setValue("");
+                }
+                return true;
+            }
+            return false;
+        }
+
+        if (search.isFocused())
+        {
+            ((Screen) (Object) host).setFocused(null);
+            search.setFocused(false);
+        }
+        // Leave slot clicks to AbstractContainerScreen.slotClicked.  The screen mixin converts
+        // a real NetworkStorageSlot click into the same server packet used by the native menu.
+        return false;
+    }
+
+    public static boolean handleMouseDrag(SidebarScreenAccess host, double mouseX, double mouseY, int button)
+    {
+        if (!host.bbd$isSidebarEnabled() || button != 0 || !host.bbd$isSidebarDragging())
+        {
+            return false;
+        }
+
+        host.bbd$dragSidebarTo(mouseX, mouseY);
+        return true;
+    }
+
+    public static boolean handleMouseRelease(SidebarScreenAccess host, double mouseX, double mouseY, int button)
+    {
+        if (button == 0 && host.bbd$isSidebarDragging())
+        {
+            boolean dragged = host.bbd$endSidebarDrag(mouseX, mouseY);
+            host.bbd$consumeSidebarMouseRelease();
+            if (!dragged)
+            {
+                host.bbd$toggleSidebarVisibility();
+            }
+            return true;
+        }
+
+        return host.bbd$consumeSidebarMouseRelease();
+    }
+
+    public static boolean handleScroll(SidebarScreenAccess host, double mouseX, double mouseY, double scrollAmount)
+    {
+        if (!host.bbd$isSidebarEnabled() || !ClientStorageState.available()
+                || host.bbd$isSidebarHidden() || scrollAmount == 0.0D)
+        {
+            return false;
+        }
+
+        int x = host.bbd$getSidebarX();
+        int y = host.bbd$getSidebarY();
+        int rows = visibleRows();
+        if (mouseX < x || mouseX >= x + WIDTH || mouseY < y + GRID_TOP
+                || mouseY >= y + GRID_TOP + rows * CommonTextures.COMMON_SLOTS_HEIGHT)
+        {
+            return false;
+        }
+
+        List<ClientStorageView.Entry> entries = entries(host);
+        int totalRows = (entries.size() + SLOT_COLUMNS - 1) / SLOT_COLUMNS;
+        int maxScroll = Math.max(0, totalRows - rows);
+        int direction = scrollAmount > 0.0D ? -1 : 1;
+        ClientStorageState.setScrollRow(Math.max(0, Math.min(maxScroll, ClientStorageState.scrollRow() + direction)));
+        return true;
+    }
+
+    public static void renderTooltip(SidebarScreenAccess host, GuiGraphics graphics, int mouseX, int mouseY)
+    {
+        renderButtonTooltip(host, mouseX, mouseY);
+    }
+
+    /**
+     * Replaces vanilla's ItemStack tooltip with AE2' native typed-stack tooltip.
+     * Calling this from the container's normal tooltip phase avoids duplicate tooltip passes.
+     */
+    public static boolean renderStorageTooltip(SidebarScreenAccess host, GuiGraphics graphics,
+                                               int mouseX, int mouseY)
+    {
+        if (!host.bbd$isSidebarEnabled() || !ClientStorageState.available() || host.bbd$isSidebarHidden()
+                || !host.bbd$getCarried().isEmpty())
+        {
+            return false;
+        }
+
+        NetworkStorageSlot slot = findSlotAt(host, mouseX, mouseY);
+        if (slot != null && slot.hasItem() && slot.getKey() != null)
+        {
+            graphics.renderTooltip(Minecraft.getInstance().font, slot.getKey().copyStack(), mouseX, mouseY);
+            return true;
+        }
+        return false;
+    }
+
+    private static void renderButtonTooltip(SidebarScreenAccess host, int mouseX, int mouseY)
+    {
+        Button[] buttons = {
+                host.bbd$getPlayerShiftButton(),
+                host.bbd$getContainerShiftButton(),
+                host.bbd$getDepositContainerButton(),
+                host.bbd$getDepositPlayerButton(),
+                host.bbd$getSidebarToggleButton()
+        };
+        for (Button button : buttons)
+        {
+            if (button.visible && button.isMouseOver(mouseX, mouseY) && button.getTooltip() != null)
+            {
+                ((Screen) (Object) host).setTooltipForNextRenderPass(
+                        button.getTooltip().toCharSequence(Minecraft.getInstance()));
+                return;
+            }
+        }
+    }
+
+    private static void drawBackground(GuiGraphics graphics, int x, int y, int rows)
+    {
+        int height = GRID_TOP + rows * CommonTextures.COMMON_SLOTS_HEIGHT
+                + CommonTextures.BOTTOM_BASE_COMMON_HEIGHT;
+        graphics.fill(x, y, x + WIDTH, y + height, 0xFF000000);
+        graphics.fill(x + 1, y + 1, x + WIDTH - 1, y + height - 1, 0xFFC6C6C6);
+        graphics.fill(x + 1, y + 1, x + WIDTH - 1, y + 2, 0xFFFFFFFF);
+        graphics.fill(x + 1, y + 1, x + 2, y + height - 1, 0xFFFFFFFF);
+        graphics.fill(x + 2, y + height - 2, x + WIDTH - 1, y + height - 1, 0xFF555555);
+        graphics.fill(x + WIDTH - 2, y + 2, x + WIDTH - 1, y + height - 1, 0xFF555555);
+
+        int connectionTop = y + CommonTextures.TOP_BASE_COMMON_HEIGHT;
+        graphics.fill(x + 2, connectionTop, x + WIDTH - 2,
+                connectionTop + CommonTextures.COMMON_CONNECTION_HEIGHT, 0xFFB0B0B0);
+        graphics.fill(x + 2, connectionTop, x + WIDTH - 2, connectionTop + 1, 0xFF555555);
+        graphics.fill(x + 2, connectionTop + CommonTextures.COMMON_CONNECTION_HEIGHT - 1,
+                x + WIDTH - 2, connectionTop + CommonTextures.COMMON_CONNECTION_HEIGHT, 0xFFE8E8E8);
+
+        for (int row = 0; row < rows; row++)
+        {
+            int rowY = y + GRID_TOP + row * CommonTextures.COMMON_SLOTS_HEIGHT;
+            drawSlotRow(graphics, x + 7, rowY);
+        }
+    }
+
+    private static void drawSlotRow(GuiGraphics graphics, int x, int y)
+    {
+        // The first player-inventory row supplies the exact vanilla recessed slot borders.
+        graphics.blit(INVENTORY_TEXTURE, x, y, 7, 83,
+                SLOT_COLUMNS * 18, CommonTextures.COMMON_SLOTS_HEIGHT, 256, 256);
+    }
+
+    private static void syncWidgets(SidebarScreenAccess host)
+    {
+        boolean visible = !host.bbd$isSidebarHidden();
+        setWidgetsVisible(host, visible);
+        Button toggle = host.bbd$getSidebarToggleButton();
+        toggle.visible = true;
+        configureButton(host, toggle, SidebarDisplayEvent.ButtonId.SIDEBAR_TOGGLE,
+                Component.literal(host.bbd$isSidebarHidden() ? "+" : "×"),
+                Component.translatable(host.bbd$isSidebarHidden()
+                        ? "better_ae2.tooltip.show_sidebar"
+                        : "better_ae2.tooltip.hide_sidebar"));
+        StorageSnapshot snapshot = ClientStorageState.snapshot();
+        boolean player = snapshot.shiftPlayerInventory();
+        boolean container = snapshot.shiftContainer();
+        configureButton(host, host.bbd$getPlayerShiftButton(), SidebarDisplayEvent.ButtonId.PLAYER_SHIFT,
+                Component.translatable("better_ae2.button.shift_player", player ? "✓" : "×"),
+                Component.translatable("better_ae2.tooltip.shift_player"));
+        configureButton(host, host.bbd$getContainerShiftButton(), SidebarDisplayEvent.ButtonId.CONTAINER_SHIFT,
+                Component.translatable("better_ae2.button.shift_container", container ? "✓" : "×"),
+                Component.translatable("better_ae2.tooltip.shift_container"));
+        configureButton(host, host.bbd$getDepositContainerButton(), SidebarDisplayEvent.ButtonId.DEPOSIT_CONTAINER,
+                Component.translatable("better_ae2.button.deposit_container"),
+                shortcutTooltip("better_ae2.tooltip.deposit_container",
+                        SidebarKeyMappings.DEPOSIT_CONTAINER));
+        configureButton(host, host.bbd$getDepositPlayerButton(), SidebarDisplayEvent.ButtonId.DEPOSIT_PLAYER,
+                Component.translatable("better_ae2.button.deposit_player"),
+                shortcutTooltip("better_ae2.tooltip.deposit_player",
+                        SidebarKeyMappings.DEPOSIT_PLAYER));
+    }
+
+    private static Component shortcutTooltip(String tooltipKey, KeyMapping mapping)
+    {
+        return Component.translatable(tooltipKey)
+                .append(Component.literal("\n"))
+                .append(Component.translatable("better_ae2.tooltip.shortcut",
+                        mapping.getTranslatedKeyMessage()));
+    }
+
+    private static void configureButton(SidebarScreenAccess host, Button button,
+                                        SidebarDisplayEvent.ButtonId buttonId,
+                                        Component defaultMessage, Component defaultTooltip)
+    {
+        SidebarDisplayEvent event = host.bbd$getSidebarDisplayEvent();
+        Component message = event == null ? null : event.getButtonMessage(buttonId);
+        Component tooltip = event == null ? null : event.getButtonTooltip(buttonId);
+        button.setMessage(message == null ? defaultMessage : message);
+        button.setTooltip(Tooltip.create(tooltip == null ? defaultTooltip : tooltip));
+        button.active = button.visible && host.bbd$isSidebarButtonEnabled(buttonId);
+    }
+
+    private static void setWidgetsVisible(SidebarScreenAccess host, boolean visible)
+    {
+        EditBox search = host.bbd$getSearchBox();
+        Button player = host.bbd$getPlayerShiftButton();
+        Button container = host.bbd$getContainerShiftButton();
+        Button depositContainer = host.bbd$getDepositContainerButton();
+        Button depositPlayer = host.bbd$getDepositPlayerButton();
+        search.visible = visible;
+        search.active = visible;
+        player.visible = visible;
+        player.active = visible;
+        container.visible = visible;
+        container.active = visible;
+        depositContainer.visible = visible;
+        depositContainer.active = visible;
+        depositPlayer.visible = visible;
+        depositPlayer.active = visible;
+    }
+
+    private static void renderWidgets(SidebarScreenAccess host, GuiGraphics graphics, int mouseX, int mouseY, float partialTick)
+    {
+        host.bbd$getSidebarToggleButton().render(graphics, mouseX, mouseY, partialTick);
+        if (host.bbd$isSidebarHidden())
+        {
+            return;
+        }
+        host.bbd$getSearchBox().render(graphics, mouseX, mouseY, partialTick);
+        host.bbd$getPlayerShiftButton().render(graphics, mouseX, mouseY, partialTick);
+        host.bbd$getContainerShiftButton().render(graphics, mouseX, mouseY, partialTick);
+        host.bbd$getDepositContainerButton().render(graphics, mouseX, mouseY, partialTick);
+        host.bbd$getDepositPlayerButton().render(graphics, mouseX, mouseY, partialTick);
+    }
+
+    private static List<ClientStorageView.Entry> entries(SidebarScreenAccess host)
+    {
+        return STORAGE_VIEW.entries(ClientStorageState.snapshot(), host.bbd$getSearchBox().getValue());
+    }
+
+    private static int cellIndexAt(SidebarScreenAccess host, double mouseX, double mouseY)
+    {
+        int x = host.bbd$getSidebarX();
+        int y = host.bbd$getSidebarY();
+        int rows = visibleRows();
+        if (mouseX < x + 7 || mouseX >= x + WIDTH - 7
+                || mouseY < y + GRID_TOP || mouseY >= y + GRID_TOP + rows * 18)
+        {
+            return -1;
+        }
+
+        int col = (int) ((mouseX - (x + 7)) / 18.0D);
+        int row = (int) ((mouseY - (y + GRID_TOP)) / 18.0D);
+        if (col < 0 || col >= SLOT_COLUMNS || row < 0 || row >= rows)
+        {
+            return -1;
+        }
+
+        return (ClientStorageState.scrollRow() + row) * SLOT_COLUMNS + col;
+    }
+
+    public static NetworkStorageSlot findSlotAt(SidebarScreenAccess host, double mouseX, double mouseY)
+    {
+        if (!host.bbd$isSidebarEnabled() || !ClientStorageState.available() || host.bbd$isSidebarHidden())
+        {
+            return null;
+        }
+
+        int storageIndex = cellIndexAt(host, mouseX, mouseY);
+        if (storageIndex < 0)
+        {
+            return null;
+        }
+
+        int visualIndex = storageIndex - ClientStorageState.scrollRow() * SLOT_COLUMNS;
+        List<NetworkStorageSlot> slots = host.bbd$getSidebarSlots();
+        if (visualIndex < 0 || visualIndex >= slots.size())
+        {
+            return null;
+        }
+        // Empty visible cells must still be real hit targets. Returning null makes vanilla
+        // treat the click as outside the menu and drop the carried stack into the world.
+        return slots.get(visualIndex);
+    }
+
+    private static boolean isHovered(int x, int y, double mouseX, double mouseY, int row, int col)
+    {
+        int slotX = x + 8 + col * 18;
+        int slotY = y + GRID_TOP + row * 18 + 1;
+        return mouseX >= slotX - 1 && mouseX < slotX + 17
+                && mouseY >= slotY - 1 && mouseY < slotY + 17;
+    }
+
+    private static int visibleRows()
+    {
+        return Math.max(2, Math.min(MAX_VISIBLE_ROWS, CommonConfigRuntime.uiPageNum));
+    }
+
+    private static void syncScrollState(String search, int entryCount)
+    {
+        ButtonState primary = CommonConfigRuntime.uiSortButton;
+        ButtonState secondary = CommonConfigRuntime.uiSecondSortButton;
+        ButtonState reverse = CommonConfigRuntime.uiReverseButton;
+        if (!search.equals(lastSearch)
+                || primary != lastPrimarySort || secondary != lastSecondarySort || reverse != lastReverse)
+        {
+            ClientStorageState.resetScroll();
+            lastSearch = search;
+            lastPrimarySort = primary;
+            lastSecondarySort = secondary;
+            lastReverse = reverse;
+        }
+
+        int maxScroll = Math.max(0, (entryCount + SLOT_COLUMNS - 1) / SLOT_COLUMNS - visibleRows());
+        ClientStorageState.setScrollRow(Math.min(ClientStorageState.scrollRow(), maxScroll));
+    }
+
+    private static String trim(Font font, String value, int maxWidth)
+    {
+        if (font.width(value) <= maxWidth)
+        {
+            return value;
+        }
+        String shortened = value;
+        while (shortened.length() > 1 && font.width(shortened + "…") > maxWidth)
+        {
+            shortened = shortened.substring(0, shortened.length() - 1);
+        }
+        return shortened + "…";
+    }
+
+    private static void renderStack(GuiGraphics graphics, net.xuwu.betterae2.compat.ItemStackKey key,
+                                    int x, int y)
+    {
+        graphics.renderItem(key.copyStack(), x, y);
+    }
+
+    private static void renderAmount(GuiGraphics graphics, net.xuwu.betterae2.compat.ItemStackKey key,
+                                     long amount, int x, int y)
+    {
+        graphics.renderItemDecorations(Minecraft.getInstance().font,
+                key.copyStackWithCount(Math.min(Integer.MAX_VALUE, Math.max(1L, amount))), x, y);
+    }
+}

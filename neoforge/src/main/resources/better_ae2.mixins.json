@@ -1,0 +1,27 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "net.xuwu.betterae2.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "refmap": "better_ae2.refmap.json",
+  "mixins": [
+    "AbstractContainerMenuMixin",
+    "ConfluenceRecipeTransferPacketMixin",
+    "JeiRecipeTransferServerMixin",
+    "ServerPlayerMixin",
+    "compat.SophisticatedStorageContainerMenuMixin"
+  ],
+  "client": [
+    "EditBoxFocusMixin",
+    "ScreenWidgetAccessor",
+    "SlotPositionAccessor",
+    "AbstractContainerScreenMixin",
+    "CreativeInventorySlotFilterMixin",
+    "JeiRecipeTransferPacketAccessor",
+    "JeiBasicRecipeTransferHandlerMixin",
+    "ConfluenceRecipeTransferHandlerMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

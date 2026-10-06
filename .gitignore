@@ -1,0 +1,13 @@
+**/.gradle/
+**/build/
+**/run/
+**/run-*/
+**/.idea/
+**/.vscode/
+**/libs/
+**/repo/
+**/logs/
+**/crash-reports/
+**/.env
+**/.env.*
+*.iml
